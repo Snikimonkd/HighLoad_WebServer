@@ -7,14 +7,12 @@
 
 #define THREAD_NUM 4
 
-typedef struct Task
-{
+typedef struct Task {
     int a, b;
     struct Task *next;
 } Task;
 
-typedef struct TaskQueue
-{
+typedef struct TaskQueue {
     Task *head;
     Task *tail;
 } TaskQueue;
@@ -26,23 +24,18 @@ int taskCount = 0;
 pthread_mutex_t mutexQueue;
 pthread_cond_t condQueue;
 
-void executeTask(Task *task)
-{
+void executeTask(Task *task) {
     int result = task->a + task->b;
     printf("The sum of %d and %d is %d\n", task->a, task->b, result);
     free(task);
 }
 
-void push(Task *task)
-{
+void push(Task *task) {
     pthread_mutex_lock(&mutexQueue);
-    if (taskCount == 0)
-    {
+    if (taskCount == 0) {
         taskQueue.head = task;
         taskQueue.tail = task;
-    }
-    else
-    {
+    } else {
         taskQueue.tail->next = task;
         taskQueue.tail = task;
     }
@@ -51,16 +44,12 @@ void push(Task *task)
     pthread_cond_signal(&condQueue);
 }
 
-Task *pop()
-{
+Task *pop() {
     Task *buf = taskQueue.head;
-    if (taskCount == 1)
-    {
+    if (taskCount == 1) {
         taskQueue.head = NULL;
         taskQueue.tail = NULL;
-    }
-    else
-    {
+    } else {
         taskQueue.head = taskQueue.head->next;
     }
 
@@ -68,15 +57,12 @@ Task *pop()
     return buf;
 }
 
-void *startThread(void *args)
-{
-    while (1)
-    {
+void *startThread(void *args) {
+    while (1) {
         Task *task;
 
         pthread_mutex_lock(&mutexQueue);
-        while (taskCount == 0)
-        {
+        while (taskCount == 0) {
             pthread_cond_wait(&condQueue, &mutexQueue);
         }
 
@@ -87,32 +73,26 @@ void *startThread(void *args)
     }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     pthread_t th[THREAD_NUM];
     pthread_mutex_init(&mutexQueue, NULL);
     pthread_cond_init(&condQueue, NULL);
-    for (int i = 0; i < THREAD_NUM; i++)
-    {
-        if (pthread_create(&th[i], NULL, &startThread, NULL) != 0)
-        {
+    for (int i = 0; i < THREAD_NUM; i++) {
+        if (pthread_create(&th[i], NULL, &startThread, NULL) != 0) {
             perror("Failed to create the thread");
         }
     }
 
     srand(time(NULL));
-    for (int i = 0; i < 100; i++)
-    {
+    for (int i = 0; i < 100; i++) {
         Task *t = malloc(sizeof(Task));
         t->a = rand() % 100;
         t->b = rand() % 100;
         push(t);
     }
 
-    for (int i = 0; i < THREAD_NUM; i++)
-    {
-        if (pthread_join(th[i], NULL) != 0)
-        {
+    for (int i = 0; i < THREAD_NUM; i++) {
+        if (pthread_join(th[i], NULL) != 0) {
             perror("Failed to join the thread");
         }
     }
