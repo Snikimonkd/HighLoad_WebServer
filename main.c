@@ -235,6 +235,7 @@ int read_from_client(int sockfd) {
 }
 
 void push(Task *task) {
+    puts("push");
     pthread_mutex_lock(&mutexQueue);
     if (taskCount == 0) {
         taskQueue.head = task;
@@ -249,6 +250,7 @@ void push(Task *task) {
 }
 
 Task *pop() {
+    puts("poop");
     Task *buf = taskQueue.head;
     if (taskCount == 1) {
         taskQueue.head = NULL;
@@ -274,6 +276,7 @@ void *startThread(void *args) {
 
         pthread_mutex_unlock(&mutexQueue);
         read_from_client(task->sockfd);
+        free(task);
     }
 }
 
@@ -353,15 +356,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    size = sizeof(client_sockaddr);
-    client_sockfd =
-        accept(myhttpd_sockfd, (struct sockaddr *)&client_sockaddr, &size);
+    while (1) {
+        size = sizeof(client_sockaddr);
+        client_sockfd =
+            accept(myhttpd_sockfd, (struct sockaddr *)&client_sockaddr, &size);
 
-    if (client_sockfd == -1) {
-        error_handle("accept error");
-    }
+        if (client_sockfd == -1) {
+            error_handle("accept error");
+        }
 
-    for (int i = 0; i < 100; i++) {
         Task *t = malloc(sizeof(Task));
         t->sockfd = client_sockfd;
         push(t);
