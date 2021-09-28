@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #define THREAD_NUM 1
 
@@ -31,7 +32,6 @@ typedef struct myhttp_header
 {
     char method[5];
     char filename[200];
-    char protocol[10];
     char type[100];
 } myhttp_header;
 
@@ -60,6 +60,39 @@ void error_handle(char *err)
     exit(EXIT_FAILURE);
 }
 
+char from_hex(char ch)
+{
+    return isdigit(ch) ? ch - '0' : tolower(ch) - 'a' + 10;
+}
+
+char *url_decode(char *str)
+{
+    char *pstr = str, *buf = malloc(strlen(str) + 1), *pbuf = buf;
+    while (*pstr)
+    {
+        if (*pstr == '%')
+        {
+            if (pstr[1] && pstr[2])
+            {
+                *pbuf++ = from_hex(pstr[1]) << 4 | from_hex(pstr[2]);
+                pstr += 2;
+            }
+        }
+        else if (*pstr == '+')
+        {
+            *pbuf++ = ' ';
+        }
+        else
+        {
+            *pbuf++ = *pstr;
+        }
+        pstr++;
+    }
+    *pbuf = '\0';
+
+    return buf;
+}
+
 char *get_content_type(char *file_type)
 {
     for (size_t i = 0; i < 9; ++i)
@@ -75,7 +108,6 @@ char *get_content_type(char *file_type)
 
 int parse_http_header(char *buff, struct myhttp_header *header)
 {
-    puts("1");
     char *section, *tmp;
     int i;
 
@@ -90,14 +122,28 @@ int parse_http_header(char *buff, struct myhttp_header *header)
     {
         return -1;
     }
-    strcpy(header->filename, section);
-    section = strtok(NULL, " ");
-    if (section == NULL)
+
+    if (strchr(section, '%') != NULL)
     {
-        return -1;
+        char *decoded_url;
+        decoded_url = url_decode(section);
+        puts(decoded_url);
+        strcpy(header->filename, decoded_url);
+        free(decoded_url);
     }
-    strcpy(header->protocol, section);
-    puts("2");
+    else
+    {
+        strcpy(header->filename, section);
+    }
+
+    if (header->filename[strlen(header->filename) - 1] == '/')
+    {
+        if (strchr(header->filename, '.'))
+        {
+            return -1;
+        }
+        strcat(header->filename, "index.html");
+    }
 
     return 0;
 }
@@ -124,33 +170,34 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
                 "Date: %s\r\n\r\n",
                 type, length, c_time_string);
         send(sockfd, buf, strlen(buf), 0);
-        puts(buf);
+        printf("[%s]", buf);
     }
     else if (strcmp(code, "400") == 0)
     {
         strcpy(buf, "HTTP/1.0 404 Bad Request\r\n"
-                    "Server: awesome_http_server\r\n");
+                    "Server: awesome_http_server\r\n\r\n");
         send(sockfd, buf, strlen(buf), 0);
-        puts(buf);
+        printf("[%s]", buf);
     }
     else if (strcmp(code, "403") == 0)
     {
         strcpy(buf, "HTTP/1.0 403 Forbidden\r\n"
-                    "Server: awesome_http_server\r\n");
+                    "Server: awesome_http_server\r\n\r\n");
         send(sockfd, buf, strlen(buf), 0);
-        puts(buf);
+        printf("[%s]", buf);
     }
     else if (strcmp(code, "404") == 0)
     {
         strcpy(buf, "HTTP/1.0 404 Not Found\r\n"
-                    "Server: awesome_http_server\r\n");
+                    "Server: awesome_http_server\r\n\r\n");
         send(sockfd, buf, strlen(buf), 0);
-        puts(buf);
+        printf("[%s]", buf);
     }
 }
 
 void send_response(int sockfd, struct myhttp_header *header)
 {
+    puts("response");
     FILE *file;
     char filename[200];
     char filedata[8092];
@@ -159,12 +206,6 @@ void send_response(int sockfd, struct myhttp_header *header)
     int nbytes = 0;
     char *tmp;
     char new[200];
-
-    if (header->filename[strlen(header->filename) - 1] == '/')
-    {
-        strcpy(filename, "index.html");
-        strcat(header->filename, filename);
-    }
 
     /*if (strstr(filename, "%20") != NULL)
     {
@@ -182,6 +223,8 @@ void send_response(int sockfd, struct myhttp_header *header)
         strcpy(filename, new);
     }*/
 
+    puts("response 2");
+    puts(header->filename);
     if (strcmp(header->filename, "."))
     {
         char type[400];
@@ -191,6 +234,7 @@ void send_response(int sockfd, struct myhttp_header *header)
         strcpy(header->type, get_content_type(tmp));
     }
 
+    puts("response 3");
     strcpy(header->filename, header->filename + 1);
     file = fopen(header->filename, "r");
     if (file == NULL)
@@ -228,7 +272,6 @@ void send_response(int sockfd, struct myhttp_header *header)
         send_header(sockfd, header->method, code, header->type, size);
         while ((nbytes = fread(filedata, sizeof(char), 8092, file)) > 0)
         {
-            puts(filedata);
             write(sockfd, filedata, nbytes);
         }
 
@@ -255,6 +298,7 @@ int read_from_client(int sockfd)
     else
     {
         puts("____________________________________________________");
+        buffer[nbytes] = '\0';
         printf("[%s]", buffer);
         int err = 0;
         err = parse_http_header(buffer, &header);
