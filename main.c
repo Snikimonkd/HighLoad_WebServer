@@ -113,20 +113,6 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
     c_time_string = ctime(&current_time);
     c_time_string[strlen(c_time_string) - 1] = '\0';
 
-    if (strcmp(method, "HEAD") == 0)
-    {
-        sprintf(buf,
-                "HTTP/1.0 200 OK\r\n"
-                "Content-Type: %s\r\n"
-                "Content-Length: %d\r\n"
-                "Server: awesome_http_server\r\n"
-                "Connection: close\r\n"
-                "Date: %s\r\n\r\n",
-                type, length, c_time_string);
-        send(sockfd, buf, strlen(buf), 0);
-        puts(buf);
-    }
-
     if (strcmp(code, "200") == 0)
     {
         sprintf(buf,
@@ -272,7 +258,14 @@ int read_from_client(int sockfd)
         printf("[%s]", buffer);
         int err = 0;
         err = parse_http_header(buffer, &header);
-        send_response(sockfd, &header);
+        if (err != 0)
+        {
+            send_header(sockfd, NULL, "404", NULL, 0);
+        }
+        else
+        {
+            send_response(sockfd, &header);
+        }
         close(sockfd);
         return 0;
     }
