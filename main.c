@@ -11,7 +11,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define THREAD_NUM 4
+#define THREAD_NUM 1
 
 #define RD_BUFF_MAX 1024
 #define CLIENT_MAX 10
@@ -75,6 +75,7 @@ char *get_content_type(char *file_type)
 
 int parse_http_header(char *buff, struct myhttp_header *header)
 {
+    puts(buff);
     char *section, *tmp;
     int i;
 
@@ -84,12 +85,6 @@ int parse_http_header(char *buff, struct myhttp_header *header)
     strcpy(header->filename, section);
     section = strtok(NULL, " ");
     strcpy(header->protocol, section);
-
-    char type[400];
-    strcpy(type, header->filename);
-    tmp = strtok(type, ".");
-    tmp = strtok(NULL, " ");
-    strcpy(header->type, get_content_type(tmp));
 
     printf("Get request with method: %s for %s\n", header->method, header->filename);
 
@@ -101,10 +96,14 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
     char buf[450];
 
     time_t current_time;
-    char *c_time_string;
+    char *time_buf;
 
     current_time = time(NULL);
-    c_time_string = ctime(&current_time);
+    time_buf = ctime(&current_time);
+    char c_time_string[strlen(time_buf - 1)];
+    memcpy(c_time_string, time_buf, strlen(time_buf - 1));
+    puts(time_buf);
+    puts(c_time_string);
 
     if (strcmp(method, "HEAD") == 0)
     {
@@ -127,9 +126,10 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
                 "Server: awesome_http_server\r\n"
                 "Content-Length: %d\r\n"
                 "Connection: close\r\n"
-                "Date: %s\r\n\r\nkekasdfasdfasdf",
+                "Date: %s\r\n\r\n",
                 type, length, c_time_string);
         send(sockfd, buf, strlen(buf), 0);
+        puts(buf);
     }
     else if (strcmp(code, "400") == 0)
     {
@@ -137,6 +137,7 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
         send(sockfd, buf, strlen(buf), 0);
         sprintf(buf, "Server: awesome_http_server\r\n");
         send(sockfd, buf, strlen(buf), 0);
+        puts("400");
     }
     else if (strcmp(code, "403") == 0)
     {
@@ -144,6 +145,7 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
         send(sockfd, buf, strlen(buf), 0);
         sprintf(buf, "Server: awesome_http_server\r\n");
         send(sockfd, buf, strlen(buf), 0);
+        puts("403");
     }
     else if (strcmp(code, "404") == 0)
     {
@@ -151,6 +153,7 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
         send(sockfd, buf, strlen(buf), 0);
         sprintf(buf, "Server: awesome_http_server\r\n");
         send(sockfd, buf, strlen(buf), 0);
+        puts("404");
     }
 }
 
@@ -165,17 +168,18 @@ void send_response(int sockfd, struct myhttp_header *header)
     char *tmp;
     char new[200];
 
-    if (strcmp(header->filename, "/") == 0)
+    puts("header filename:");
+    puts(header->filename);
+
+    if (header->filename[strlen(header->filename) - 1] == '/')
     {
+        puts("zakanchivaetsy na slash");
+        puts(header->filename);
         strcpy(filename, "index.html");
-    }
-    else
-    {
-        strcpy(filename, ".");
-        strcat(filename, header->filename);
+        strcat(header->filename, filename);
     }
 
-    if (strstr(filename, "%20") != NULL)
+    /*if (strstr(filename, "%20") != NULL)
     {
         tmp = strtok(filename, "%20");
         strcpy(new, tmp);
@@ -189,10 +193,24 @@ void send_response(int sockfd, struct myhttp_header *header)
 
         new[strlen(new) - 1] = 0;
         strcpy(filename, new);
+    }*/
+
+    if (strcmp(header->filename, "."))
+    {
+        char type[400];
+        strcpy(type, header->filename);
+        tmp = strtok(type, ".");
+        tmp = strtok(NULL, "");
+        strcpy(header->type, get_content_type(tmp));
+        puts("tmp");
+        puts(tmp);
     }
 
-    file = fopen(filename, "r");
-
+    strcpy(header->filename, header->filename + 1);
+    puts(header->filename);
+    puts("open");
+    puts(header->filename);
+    file = fopen(header->filename, "r");
     if (file == NULL)
     {
         if (errno == ENOENT)
@@ -217,10 +235,9 @@ void send_response(int sockfd, struct myhttp_header *header)
 
         fseek(file, 0L, SEEK_SET);
 
-        send_header(sockfd, header->method, code, header->type, size);
-
         if (strcmp(header->method, "HEAD") == 0)
         {
+            send_header(sockfd, header->method, code, header->type, size);
             puts("HEAD");
             fclose(file);
             return;
@@ -255,7 +272,9 @@ int read_from_client(int sockfd)
     }
     else
     {
+        puts("parse header");
         parse_http_header(buffer, &header);
+        puts("send response");
         send_response(sockfd, &header);
         close(sockfd);
         return 0;
@@ -332,11 +351,6 @@ int main(int argc, char *argv[])
     }
 
     myhttpd_port = atoi(argv[1]);
-    if (myhttpd_port <= 1024 || myhttpd_port >= 65536)
-    {
-        error_handle(
-            "port number has to between 1024 and 65536 (not included)");
-    }
 
     myhttpd_sockfd = socket(PF_INET, SOCK_STREAM, 0);
     if (myhttpd_sockfd < 0)
