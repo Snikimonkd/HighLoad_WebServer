@@ -212,13 +212,10 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
 void send_response(int sockfd, struct myhttp_header *header)
 {
     FILE *file;
-    char filename[200];
     char filedata[8092];
     char code[4];
-    int len;
     int nbytes = 0;
     char *tmp;
-    char new[200];
 
     strcpy(header->filename, header->filename + 1);
     file = fopen(header->filename, "r");
@@ -226,6 +223,15 @@ void send_response(int sockfd, struct myhttp_header *header)
     {
         if (errno == ENOENT)
         {
+            tmp = strstr(header->filename, "index");
+            if (tmp == NULL)
+            {
+                strcpy(code, "404");
+            }
+            else
+            {
+                strcpy(code, "403");
+            }
             strcpy(code, "404");
         }
         else if (errno == EACCES)
@@ -237,6 +243,7 @@ void send_response(int sockfd, struct myhttp_header *header)
             strcpy(code, "404");
         }
 
+        printf("%s %s %s\n", header->method, header->filename, code);
         send_header(sockfd, header->method, code, header->type, 0);
     }
     else
@@ -248,15 +255,21 @@ void send_response(int sockfd, struct myhttp_header *header)
 
         if (strcmp(header->method, "HEAD") == 0)
         {
+            strcpy(code, "200");
             send_header(sockfd, header->method, "200", header->type, size);
             fclose(file);
+
+            printf("%s %s %s\n", header->method, header->filename, code);
             return;
         }
 
         if (strcmp(header->method, "POST") == 0)
         {
+            strcpy(code, "405");
             send_header(sockfd, header->method, "405", header->type, size);
             fclose(file);
+
+            printf("%s %s %s\n", header->method, header->filename, code);
             return;
         }
 
@@ -268,6 +281,8 @@ void send_response(int sockfd, struct myhttp_header *header)
         }
 
         fclose(file);
+
+        printf("%s %s %s\n", header->method, header->filename, code);
     }
 }
 
@@ -289,7 +304,6 @@ int read_from_client(int sockfd)
     }
     else
     {
-        puts("____________________________________________________");
         buffer[nbytes] = '\0';
         int err = 0;
         err = parse_http_header(buffer, &header);
@@ -395,7 +409,7 @@ int main(int argc, char *argv[])
         error_handle("bind failed");
     }
 
-    printf("Listening port:[%d]", myhttpd_port);
+    printf("Listening port: %d\n", myhttpd_port);
 
     if (listen(myhttpd_sockfd, CLIENT_MAX) == -1)
     {
