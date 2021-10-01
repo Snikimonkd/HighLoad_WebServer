@@ -12,10 +12,10 @@
 #include <unistd.h>
 #include <ctype.h>
 
-#define THREAD_NUM 8
+#define THREAD_NUM 16
 
 #define RD_BUFF_MAX 1024
-#define CLIENT_MAX 10
+#define CLIENT_MAX 32
 
 char *types[9][2] = {
     {"js", "application/javascript"},
@@ -127,6 +127,11 @@ int parse_http_header(char *buff, struct myhttp_header *header)
     memcpy(header->filename, buff + strlen(header->method) + 1, strlen(buff) - strlen(header->method) - strlen(tmp) - 2);
     header->filename[strlen(buff) - strlen(header->method) - strlen(tmp) - 2] = '\0';
 
+    if (strstr(header->filename, "../"))
+    {
+        return -2;
+    }
+
     if (strchr(header->filename, '%') != NULL)
     {
         char *decoded_url;
@@ -181,44 +186,40 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
                 "Connection: close\r\n"
                 "Date: %s\r\n\r\n",
                 type, length, c_time_string);
-        send(sockfd, buf, strlen(buf), 0);
     }
     else if (strcmp(code, "400") == 0)
     {
         strcpy(buf, "HTTP/1.0 404 Bad Request\r\n"
                     "Server: awesome_http_server\r\n\r\n");
-        send(sockfd, buf, strlen(buf), 0);
     }
     else if (strcmp(code, "403") == 0)
     {
         strcpy(buf, "HTTP/1.0 403 Forbidden\r\n"
                     "Server: awesome_http_server\r\n\r\n");
-        send(sockfd, buf, strlen(buf), 0);
     }
     else if (strcmp(code, "404") == 0)
     {
         strcpy(buf, "HTTP/1.0 404 Not Found\r\n"
                     "Server: awesome_http_server\r\n\r\n");
-        send(sockfd, buf, strlen(buf), 0);
     }
     else if (strcmp(code, "405") == 0)
     {
         strcpy(buf, "HTTP/1.0 405 Not Found\r\n"
                     "Server: awesome_http_server\r\n\r\n");
-        send(sockfd, buf, strlen(buf), 0);
     }
+
+    send(sockfd, buf, strlen(buf), 0);
 }
 
 void send_response(int sockfd, struct myhttp_header *header)
 {
     FILE *file;
-    char filedata[8092];
+    char filedata[RD_BUFF_MAX];
     char code[4];
     int nbytes = 0;
     char *tmp;
 
-    strcpy(header->filename, header->filename + 1);
-    file = fopen(header->filename, "r");
+    file = fopen(header->filename + 1, "r");
     if (file == NULL)
     {
         if (errno == ENOENT)
@@ -257,9 +258,8 @@ void send_response(int sockfd, struct myhttp_header *header)
         {
             strcpy(code, "200");
             send_header(sockfd, header->method, "200", header->type, size);
-            fclose(file);
 
-            printf("%s %s %s\n", header->method, header->filename, code);
+            fclose(file);
             return;
         }
 
@@ -267,17 +267,40 @@ void send_response(int sockfd, struct myhttp_header *header)
         {
             strcpy(code, "405");
             send_header(sockfd, header->method, "405", header->type, size);
-            fclose(file);
 
-            printf("%s %s %s\n", header->method, header->filename, code);
+            fclose(file);
             return;
         }
 
+        printf("%s %s %s\n", header->method, header->filename, code);
         strcpy(code, "200");
         send_header(sockfd, header->method, code, header->type, size);
-        while ((nbytes = fread(filedata, sizeof(char), 8092, file)) > 0)
+
+        while (size > 0)
         {
-            write(sockfd, filedata, nbytes);
+            nbytes = fread(filedata, sizeof(char), RD_BUFF_MAX, file);
+            if (nbytes == -1)
+            {
+                error_handle("socket write failed");
+            }
+            size -= nbytes;
+
+            ssize_t nwrite;
+            nwrite = write(sockfd, filedata, nbytes);
+            if (nwrite == -1)
+            {
+                error_handle("socket write failed");
+            }
+            nbytes -= nwrite;
+            while (nbytes > 0)
+            {
+                nwrite = write(sockfd, filedata + nwrite, nbytes);
+                if (nwrite == -1)
+                {
+                    error_handle("socket write failed");
+                }
+                nbytes -= nwrite;
+            }
         }
 
         fclose(file);
@@ -288,36 +311,47 @@ void send_response(int sockfd, struct myhttp_header *header)
 
 int read_from_client(int sockfd)
 {
-    char buffer[RD_BUFF_MAX];
-    int nbytes;
+    char *buffer = malloc(sizeof(char) * RD_BUFF_MAX);
+    int nbytes = 0;
+    int nread;
     struct myhttp_header header;
 
-    nbytes = read(sockfd, buffer, RD_BUFF_MAX);
-    if (nbytes < 0)
+    nread = read(sockfd, buffer, RD_BUFF_MAX);
+    nbytes = nread;
+    while (nread == RD_BUFF_MAX)
     {
+        buffer = (char *)realloc(buffer, nbytes + RD_BUFF_MAX);
+        nread = read(sockfd, buffer + nbytes, RD_BUFF_MAX);
+        nbytes += nread;
+    }
+    if (nread == -1)
+    {
+        free(buffer);
         error_handle("socket read failed");
-        return -1;
     }
-    else if (nbytes == 0)
+
+    buffer[nbytes] = '\0';
+    int err = 0;
+    err = parse_http_header(buffer, &header);
+    if (err == -1)
     {
-        return -1;
-    }
-    else
-    {
-        buffer[nbytes] = '\0';
-        int err = 0;
-        err = parse_http_header(buffer, &header);
-        if (err != 0)
-        {
-            send_header(sockfd, NULL, "404", NULL, 0);
-        }
-        else
-        {
-            send_response(sockfd, &header);
-        }
+        send_header(sockfd, NULL, "404", NULL, 0);
         close(sockfd);
+        free(buffer);
         return 0;
     }
+    if (err == -2)
+    {
+        send_header(sockfd, NULL, "403", NULL, 0);
+        close(sockfd);
+        free(buffer);
+        return 0;
+    }
+
+    send_response(sockfd, &header);
+    close(sockfd);
+    free(buffer);
+    return 0;
 }
 
 void push(Task *task)
@@ -428,6 +462,8 @@ int main(int argc, char *argv[])
         }
     }
 
+    size_t i = 0;
+
     while (1)
     {
         size = sizeof(client_sockaddr);
@@ -453,5 +489,6 @@ int main(int argc, char *argv[])
     pthread_mutex_destroy(&mutexQueue);
     pthread_cond_destroy(&condQueue);
     close(myhttpd_sockfd);
+
     return 0;
 }
