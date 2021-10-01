@@ -12,21 +12,20 @@
 #include <unistd.h>
 #include <ctype.h>
 
-#define THREAD_NUM 16
-
 #define RD_BUFF_MAX 1024
-#define CLIENT_MAX 32
+#define CLIENT_MAX 18
 
-char *types[9][2] = {
-    {"js", "application/javascript"},
-    {"html", "text/html"},
-    {"txt", "text/htm"},
-    {"css", "text/css"},
-    {"png", "image/png"},
-    {"jpg", "image/jpeg"},
-    {"jpeg", "image/jpeg"},
-    {"gif", "image/gif"},
-    {"swf", "application/x-shockwave-flash"}};
+char *
+    types[9][2] = {
+        {"js", "application/javascript"},
+        {"html", "text/html"},
+        {"txt", "text/htm"},
+        {"css", "text/css"},
+        {"png", "image/png"},
+        {"jpg", "image/jpeg"},
+        {"jpeg", "image/jpeg"},
+        {"gif", "image/gif"},
+        {"swf", "application/x-shockwave-flash"}};
 
 typedef struct myhttp_header
 {
@@ -411,6 +410,7 @@ void *startThread(void *args)
 
 int main(int argc, char *argv[])
 {
+    int THREAD_NUM = sysconf(_SC_NPROCESSORS_ONLN) - 1;
     int myhttpd_sockfd, client_sockfd;
     int myhttpd_port;
 
