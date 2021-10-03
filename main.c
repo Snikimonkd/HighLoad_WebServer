@@ -13,7 +13,7 @@
 #include <ctype.h>
 
 #define RD_BUFF_MAX 1024
-#define CLIENT_MAX 18
+#define CLIENT_MAX 128
 
 char *
     types[9][2] = {
@@ -213,9 +213,7 @@ void send_header(int sockfd, char *method, char *code, char *type, int length)
 void send_response(int sockfd, struct myhttp_header *header)
 {
     FILE *file;
-    char filedata[RD_BUFF_MAX];
     char code[4];
-    int nbytes = 0;
     char *tmp;
 
     file = fopen(header->filename + 1, "r");
@@ -271,24 +269,28 @@ void send_response(int sockfd, struct myhttp_header *header)
             return;
         }
 
-        printf("%s %s %s\n", header->method, header->filename, code);
         strcpy(code, "200");
+        printf("%s %s %s\n", header->method, header->filename, code);
         send_header(sockfd, header->method, code, header->type, size);
 
+        int nbytes = 0;
+        char filedata[size];
         while (size > 0)
         {
-            nbytes = fread(filedata, sizeof(char), RD_BUFF_MAX, file);
+            nbytes = fread(filedata, sizeof(char), size - nbytes, file);
             if (nbytes == -1)
             {
-                error_handle("socket write failed");
+                fclose(file);
+                return;
             }
             size -= nbytes;
 
-            ssize_t nwrite;
+            ssize_t nwrite = 0;
             nwrite = write(sockfd, filedata, nbytes);
             if (nwrite == -1)
             {
-                error_handle("socket write failed");
+                fclose(file);
+                return;
             }
             nbytes -= nwrite;
             while (nbytes > 0)
@@ -296,7 +298,8 @@ void send_response(int sockfd, struct myhttp_header *header)
                 nwrite = write(sockfd, filedata + nwrite, nbytes);
                 if (nwrite == -1)
                 {
-                    error_handle("socket write failed");
+                    fclose(file);
+                    return;
                 }
                 nbytes -= nwrite;
             }
@@ -325,8 +328,9 @@ int read_from_client(int sockfd)
     }
     if (nread == -1)
     {
+        close(sockfd);
         free(buffer);
-        error_handle("socket read failed");
+        return -1;
     }
 
     buffer[nbytes] = '\0';
@@ -337,14 +341,14 @@ int read_from_client(int sockfd)
         send_header(sockfd, NULL, "404", NULL, 0);
         close(sockfd);
         free(buffer);
-        return 0;
+        return -1;
     }
     if (err == -2)
     {
         send_header(sockfd, NULL, "403", NULL, 0);
         close(sockfd);
         free(buffer);
-        return 0;
+        return -1;
     }
 
     send_response(sockfd, &header);
@@ -403,14 +407,20 @@ void *startThread(void *args)
         task = pop();
 
         pthread_mutex_unlock(&mutexQueue);
-        read_from_client(task->sockfd);
+        int err = read_from_client(task->sockfd);
+        if (err != 0)
+        {
+            puts("error reading from socket");
+            free(task);
+            continue;
+        }
         free(task);
     }
 }
 
 int main(int argc, char *argv[])
 {
-    int THREAD_NUM = sysconf(_SC_NPROCESSORS_ONLN) - 1;
+    int THREAD_NUM = 12;
     int myhttpd_sockfd, client_sockfd;
     int myhttpd_port;
 
@@ -462,15 +472,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    size_t i = 0;
-
     while (1)
     {
         size = sizeof(client_sockaddr);
         client_sockfd = accept(myhttpd_sockfd, (struct sockaddr *)&client_sockaddr, &size);
         if (client_sockfd == -1)
         {
-            error_handle("accept error");
+            puts("closed");
+            continue;
         }
 
         Task *t = malloc(sizeof(Task));
