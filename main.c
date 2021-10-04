@@ -446,16 +446,19 @@ int main(int argc, char *argv[])
     {
         threads_amount = sysconf(_SC_NPROCESSORS_ONLN);
         myhttpd_port = 8080;
+        break;
     }
     case 2:
     {
         threads_amount = sysconf(_SC_NPROCESSORS_ONLN);
         myhttpd_port = atoi(argv[1]);
+        break;
     }
     case 3:
     {
         threads_amount = atoi(argv[2]);
         myhttpd_port = atoi(argv[1]);
+        break;
     }
     default:
         puts("Wrong number of arguments");
