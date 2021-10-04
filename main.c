@@ -11,17 +11,14 @@
 #include <time.h>
 #include <unistd.h>
 #include <ctype.h>
-#include <stdatomic.h>
 
 #define RD_BUFF_MAX 128
 #define CLIENT_MAX 400
 
-atomic_int errors = 0;
-
 char *
     types[9][2] = {
-        {"js", "application/javascript"},
         {"html", "text/html"},
+        {"js", "application/javascript"},
         {"txt", "text/htm"},
         {"css", "text/css"},
         {"png", "image/png"},
@@ -246,6 +243,7 @@ void send_response(int sockfd, struct myhttp_header *header)
         }
 
         send_header(sockfd, header->method, code, header->type, 0);
+        printf("%s %s %s\n", header->method, header->filename, code);
     }
     else
     {
@@ -257,7 +255,8 @@ void send_response(int sockfd, struct myhttp_header *header)
         if (strcmp(header->method, "HEAD") == 0)
         {
             strcpy(code, "200");
-            send_header(sockfd, header->method, "200", header->type, size);
+            send_header(sockfd, header->method, code, header->type, size);
+            printf("%s %s %s\n", header->method, header->filename, code);
 
             fclose(file);
             return;
@@ -266,7 +265,8 @@ void send_response(int sockfd, struct myhttp_header *header)
         if (strcmp(header->method, "POST") == 0)
         {
             strcpy(code, "405");
-            send_header(sockfd, header->method, "405", header->type, size);
+            send_header(sockfd, header->method, code, header->type, size);
+            printf("%s %s %s\n", header->method, header->filename, code);
 
             fclose(file);
             return;
@@ -274,6 +274,7 @@ void send_response(int sockfd, struct myhttp_header *header)
 
         strcpy(code, "200");
         send_header(sockfd, header->method, code, header->type, size);
+        printf("%s %s %s\n", header->method, header->filename, code);
 
         int nbytes = 0;
         char filedata[size];
@@ -321,10 +322,9 @@ int read_from_client(int sockfd)
     nread = read(sockfd, buffer, RD_BUFF_MAX);
     if (nread == 0)
     {
-        ++errors;
         puts("error reading from socket");
-        printf("%d\n", errors);
         send_header(sockfd, NULL, "404", NULL, 0);
+        printf("Empty request %s\n", "404");
         close(sockfd);
         free(buffer);
         return -1;
@@ -440,23 +440,24 @@ int main(int argc, char *argv[])
     struct sockaddr_in myhttpd_sockaddr, client_sockaddr;
     socklen_t size;
 
-    if (argc == 1)
+    switch (argc)
+    {
+    case 1:
     {
         threads_amount = sysconf(_SC_NPROCESSORS_ONLN);
         myhttpd_port = 8080;
     }
-    if (argc == 2)
+    case 2:
     {
         threads_amount = sysconf(_SC_NPROCESSORS_ONLN);
         myhttpd_port = atoi(argv[1]);
     }
-    else if (argc == 3)
+    case 3:
     {
         threads_amount = atoi(argv[2]);
         myhttpd_port = atoi(argv[1]);
     }
-    else
-    {
+    default:
         puts("Wrong number of arguments");
     }
 
