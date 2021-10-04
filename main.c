@@ -342,6 +342,7 @@ int read_from_client(int sockfd)
     }
     if (nread == -1)
     {
+        send_header(sockfd, NULL, "404", NULL, 0);
         close(sockfd);
         free(buffer);
         return -1;
