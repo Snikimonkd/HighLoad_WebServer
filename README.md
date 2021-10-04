@@ -2,6 +2,7 @@
 Лукаш Сергей АПО-31
 
 # Nginx
+```bash
 This is ApacheBench, Version 2.3 <$Revision: 1843412 $>
 Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
 Licensed to The Apache Software Foundation, http://www.apache.org/
@@ -55,8 +56,9 @@ Percentage of the requests served within a certain time (ms)
   98%      2
   99%      2
  100%      6 (longest request)
-
-# my server
+```
+# awesome_http_server
+```bash
 This is ApacheBench, Version 2.3 <$Revision: 1843412 $>
 Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
 Licensed to The Apache Software Foundation, http://www.apache.org/
@@ -110,3 +112,4 @@ Percentage of the requests served within a certain time (ms)
   98%      2
   99%      3
  100%      9 (longest request)
+```
