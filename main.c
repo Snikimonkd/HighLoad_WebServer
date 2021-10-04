@@ -11,9 +11,12 @@
 #include <time.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <stdatomic.h>
 
-#define RD_BUFF_MAX 1024
-#define CLIENT_MAX 128
+#define RD_BUFF_MAX 128
+#define CLIENT_MAX 400
+
+atomic_int errors = 0;
 
 char *
     types[9][2] = {
@@ -107,15 +110,16 @@ char *get_content_type(char *file_type)
 
 int parse_http_header(char *buff, struct myhttp_header *header)
 {
-    char *section, *tmp;
-    int i;
+    char *tmp;
+    char section[strlen(buff)];
+    strcpy(section, buff);
 
-    tmp = strstr(buff, " ");
+    tmp = strstr(section, " ");
     if (tmp == NULL)
     {
         return -1;
     }
-    memcpy(header->method, buff, strlen(buff) - strlen(tmp));
+    memcpy(header->method, section, strlen(buff) - strlen(tmp));
     header->method[strlen(buff) - strlen(tmp)] = '\0';
 
     tmp = strstr(buff, "HTTP/");
@@ -123,7 +127,7 @@ int parse_http_header(char *buff, struct myhttp_header *header)
     {
         return -1;
     }
-    memcpy(header->filename, buff + strlen(header->method) + 1, strlen(buff) - strlen(header->method) - strlen(tmp) - 2);
+    memcpy(header->filename, section + strlen(header->method) + 1, strlen(buff) - strlen(header->method) - strlen(tmp) - 2);
     header->filename[strlen(buff) - strlen(header->method) - strlen(tmp) - 2] = '\0';
 
     if (strstr(header->filename, "../"))
@@ -241,7 +245,6 @@ void send_response(int sockfd, struct myhttp_header *header)
             strcpy(code, "404");
         }
 
-        printf("%s %s %s\n", header->method, header->filename, code);
         send_header(sockfd, header->method, code, header->type, 0);
     }
     else
@@ -270,7 +273,6 @@ void send_response(int sockfd, struct myhttp_header *header)
         }
 
         strcpy(code, "200");
-        printf("%s %s %s\n", header->method, header->filename, code);
         send_header(sockfd, header->method, code, header->type, size);
 
         int nbytes = 0;
@@ -306,8 +308,6 @@ void send_response(int sockfd, struct myhttp_header *header)
         }
 
         fclose(file);
-
-        printf("%s %s %s\n", header->method, header->filename, code);
     }
 }
 
@@ -319,12 +319,26 @@ int read_from_client(int sockfd)
     struct myhttp_header header;
 
     nread = read(sockfd, buffer, RD_BUFF_MAX);
-    nbytes = nread;
-    while (nread == RD_BUFF_MAX)
+    if (nread == 0)
     {
-        buffer = (char *)realloc(buffer, nbytes + RD_BUFF_MAX);
-        nread = read(sockfd, buffer + nbytes, RD_BUFF_MAX);
-        nbytes += nread;
+        ++errors;
+        puts("error reading from socket");
+        printf("%d\n", errors);
+        send_header(sockfd, NULL, "404", NULL, 0);
+        close(sockfd);
+        free(buffer);
+        return -1;
+    }
+
+    nbytes = nread;
+    if (strstr(buffer, "\r\n\r\n") == NULL)
+    {
+        while (nread > 0)
+        {
+            buffer = (char *)realloc(buffer, nbytes + RD_BUFF_MAX);
+            nread = read(sockfd, buffer + nbytes, RD_BUFF_MAX);
+            nbytes += nread;
+        }
     }
     if (nread == -1)
     {
@@ -333,7 +347,7 @@ int read_from_client(int sockfd)
         return -1;
     }
 
-    buffer[nbytes] = '\0';
+    buffer[nbytes + 1] = '\0';
     int err = 0;
     err = parse_http_header(buffer, &header);
     if (err == -1)
@@ -405,12 +419,11 @@ void *startThread(void *args)
         }
 
         task = pop();
-
         pthread_mutex_unlock(&mutexQueue);
+
         int err = read_from_client(task->sockfd);
         if (err != 0)
         {
-            puts("error reading from socket");
             free(task);
             continue;
         }
@@ -420,25 +433,43 @@ void *startThread(void *args)
 
 int main(int argc, char *argv[])
 {
-    int THREAD_NUM = 12;
     int myhttpd_sockfd, client_sockfd;
     int myhttpd_port;
+    int threads_amount = 0;
 
     struct sockaddr_in myhttpd_sockaddr, client_sockaddr;
     socklen_t size;
-    pthread_t newthread;
 
-    if (argc != 2)
+    if (argc == 1)
     {
-        error_handle("incorrect number of args");
+        threads_amount = sysconf(_SC_NPROCESSORS_ONLN);
+        myhttpd_port = 8080;
     }
-
-    myhttpd_port = atoi(argv[1]);
+    if (argc == 2)
+    {
+        threads_amount = sysconf(_SC_NPROCESSORS_ONLN);
+        myhttpd_port = atoi(argv[1]);
+    }
+    else if (argc == 3)
+    {
+        threads_amount = atoi(argv[2]);
+        myhttpd_port = atoi(argv[1]);
+    }
+    else
+    {
+        puts("Wrong number of arguments");
+    }
 
     myhttpd_sockfd = socket(PF_INET, SOCK_STREAM, 0);
     if (myhttpd_sockfd < 0)
     {
         error_handle("myhttpd socket failed to create");
+    }
+
+    if (setsockopt(myhttpd_sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
+    {
+        close(myhttpd_sockfd);
+        error_handle("bind failed");
     }
 
     memset(&myhttpd_sockaddr, 0, sizeof(myhttpd_sockaddr));
@@ -454,6 +485,7 @@ int main(int argc, char *argv[])
     }
 
     printf("Listening port: %d\n", myhttpd_port);
+    printf("Threads amount: %d\n", threads_amount);
 
     if (listen(myhttpd_sockfd, CLIENT_MAX) == -1)
     {
@@ -461,10 +493,10 @@ int main(int argc, char *argv[])
         error_handle("listen failed");
     }
 
-    pthread_t th[THREAD_NUM];
+    pthread_t th[threads_amount];
     pthread_mutex_init(&mutexQueue, NULL);
     pthread_cond_init(&condQueue, NULL);
-    for (size_t i = 0; i < THREAD_NUM; i++)
+    for (size_t i = 0; i < threads_amount; i++)
     {
         if (pthread_create(&th[i], NULL, &startThread, NULL) != 0)
         {
@@ -476,18 +508,15 @@ int main(int argc, char *argv[])
     {
         size = sizeof(client_sockaddr);
         client_sockfd = accept(myhttpd_sockfd, (struct sockaddr *)&client_sockaddr, &size);
-        if (client_sockfd == -1)
+        if (client_sockfd != -1)
         {
-            puts("closed");
-            continue;
+            Task *t = malloc(sizeof(Task));
+            t->sockfd = client_sockfd;
+            push(t);
         }
-
-        Task *t = malloc(sizeof(Task));
-        t->sockfd = client_sockfd;
-        push(t);
     }
 
-    for (size_t i = 0; i < THREAD_NUM; i++)
+    for (size_t i = 0; i < threads_amount; i++)
     {
         if (pthread_join(th[i], NULL) != 0)
         {
